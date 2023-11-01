@@ -1,0 +1,202 @@
+<?xml version="1.0" encoding="UTF-8"?><sqlb_project><db path="C:/Users/Gurpartap singh/Desktop/portf_proj/covid19.db" readonly="0" foreign_keys="1" case_sensitive_like="0" temp_store="0" wal_autocheckpoint="1000" synchronous="2"/><attached/><window><main_tabs open="structure pragmas query" current="2"/></window><tab_structure><column_width id="0" width="300"/><column_width id="1" width="0"/><column_width id="2" width="150"/><column_width id="3" width="15661"/><column_width id="4" width="0"/><expanded_item id="0" parent="1"/><expanded_item id="1" parent="1"/><expanded_item id="2" parent="1"/><expanded_item id="3" parent="1"/><expanded_item id="4" parent="1"/></tab_structure><tab_browse><current_table name="4,27:mainPercentPopulationVaccinated"/><default_encoding codec=""/><browse_table_settings/></tab_browse><tab_sql><sql name="SQL 1">/*
+Covid 19 Data Exploration 
+
+Skills used: Joins, Case Statements, CTE's, Temp Tables, Windows Functions, Aggregate Functions, Creating Views, Converting Data Types
+
+*/
+
+Select *
+From PortfolioProject..CovidDeaths
+Where continent is not null 
+order by 3,4
+
+
+-- Select Data that we are going to be starting with
+
+SELECT location,date ,total_cases, new_cases,total_deaths,population_density
+from covidDeaths
+--WHERE location like'%india%'
+ ORDER by 1,2
+
+
+-- Total Cases vs Total Deaths
+-- Shows likelihood of dying if you contract covid in your country
+ 
+SELECT location,date ,total_cases, total_deaths, (total_deaths/total_cases) as percentageofdeathds
+from covidDeaths
+--WHERE location like'%india%'
+and continent is not null 
+order by 1,2
+
+
+-- Total Cases vs Population
+-- Shows what percentage of population infected with Covid
+
+SELECT location, date ,total_cases, population_density, (total_cases/population_density)*100 as PercentPopulationInfected
+FROM covidDeaths
+WHERE location like'%india%'
+--AND continent is not null 
+ ORDER by 2 DESC
+
+
+-- Countries with Highest Infection Rate compared to Population
+
+SELECT  location,population_density,max(total_cases) as highestinfacted, max((total_cases/population_density))*100 as percentageoftotalcase
+FROM covidDeaths
+--WHERE location like'%INDIA%'
+--AND continent is not null 
+GROUP BY location,population_density
+ORDER by percentageoftotalcase desc
+
+
+-- Countries with Highest Death Count per Population
+
+SELECT  location,max(total_deaths) as totaldeatcount
+FROM covidDeaths
+--WHERE location like'%state%'
+WHERE continent is not null 
+GROUP BY location
+ORDER by totaldeatcount desc
+
+
+-- BREAKING THINGS DOWN BY CONTINENT
+
+-- Showing contintents with the highest death count per population
+
+SELECT  location,max(total_deaths) as totaldeatcount
+FROM covidDeaths
+--WHERE location like'%state%'
+WHERE continent is  null 
+GROUP BY location
+ORDER by totaldeatcount desc
+
+
+
+-- GLOBAL NUMBERS
+
+SELECT 
+  date,
+  sum(new_cases) as totalcase,
+  sum(cast(new_deaths as INT)) as totaldeath,
+  sum(CAST(new_deaths as int ))/sum(new_cases) deathpercent
+FROM covidDeaths
+WHERE continent is not null 
+GROUP BY date
+order by 1,2
+
+
+/* QUREY ABOVE IN MY SYSTEM NOT GETTING THE ACCURATE DATA SO I HAVE TO 
+USE CASE STATEMENT TO GET THE ACCURATE DATA DOWN BELOW 
+**/
+
+SELECT 
+  date,
+  sum(new_cases)  as totalcase,
+  sum(cast(new_deaths as INT)) as totaldeath,
+CASE
+  WHEN sum(new_cases)= 0 THEN NULL
+  ELSE sum((new_deaths )*100.0)/sum(new_cases)
+END as deathpercent
+FROM covidDeaths
+   where continent is not null 
+   GROUP BY date
+   order by 1,2	
+
+
+-- Total Population vs Vaccinations
+-- Shows Percentage of Population that has recieved at least one Covid Vaccine
+
+SELECT dea.continent, 
+       dea.date, 
+       dea.location,
+       population_density, 
+       vac.new_people_vaccinated_smoothed
+FROM covidDeaths as dea
+JOIN covidvac as vac 
+on dea.location = vac.location
+where dea.continent is NOT NULL
+and dea.date = vac.date
+
+
+-- Using CTE to perform Calculation on Partition By in previous query
+
+WITH popvsvac (Continent, Date, Location ,Population_density,New_vaccinations_smoothed,Rollingcountvac)
+as
+(
+SELECT dea.continent, 
+    dea.date, 
+    dea.location,
+dea.population_density, 
+vac.new_people_vaccinated_smoothed,
+sum(vac.new_people_vaccinated_smoothed) OVER (PARTITION by dea.location ORDER by dea.location,dea.date )  as rollingcountvac
+  FROM covidDeaths as dea
+    JOIN covidvac as vac 
+    on dea.location = vac.location
+    where dea.continent is NOT NULL 
+    and dea.date = vac.date
+--ORDER BY 2,3
+ )
+SELECT *,(rollingcountvac/population_density)*100.0 as percentegeofpeople
+FROM popvsvac
+
+
+
+-- Using Temp Table to perform Calculation on Partition By in previous query
+
+DROP Table if exists RatioPopulationVaccinated
+
+CREATE TEMP TABLE RatioPopulationVaccinated(
+Continent varchar(128),
+Date datetime,
+location varchar(128),
+Population NUMERIC,
+New_vaccination NUMERIC,
+RollingPeopleVaccinated NUMERIC
+);
+
+INSERT INTO RatioPopulationVaccinated
+SELECT dea.continent, 
+       dea.date, 
+       dea.location,
+	   dea.population_density, 
+	   vac.new_people_vaccinated_smoothed,
+	sum(vac.new_people_vaccinated_smoothed) OVER (PARTITION by dea.location ORDER by dea.location,dea.date )  as rollingcountvac
+FROM covidDeaths as dea
+ JOIN covidvac as vac 
+ on dea.location = vac.location
+ --where dea.continent is NOT NULL 
+ and dea.date = vac.date
+ --ORDER BY 2,3
+ )
+ 
+ 
+SELECT *,(RollingPeopleVaccinated /Population)*100.0 as percentegeofpeople
+FROM RatioPopulationVaccinated
+--WHERE Location  like '%india%'
+order by 2,3,
+
+
+
+
+-- Creating View to store data for later visualizations
+
+CREATE VIEW Percentagepeoplgotvac as
+SELECT dea.continent, 
+dea.date, 
+dea.location,
+dea.population_density, 
+vac.new_people_vaccinated_smoothed,
+sum(vac.new_people_vaccinated_smoothed) OVER (PARTITION by dea.location ORDER by dea.location,dea.date )  as rollingcountvac
+   FROM covidDeaths as dea
+        JOIN covidvac as vac 
+        on dea.location = vac.location
+ --where dea.continent is NOT NULL 
+        and dea.date = vac.date
+ --ORDER BY 2,3
+ 
+
+SELECT * 
+FROM Percentagepeoplgotvac
+WHERE location like '%india%' 
+
+</sql><current_tab id="0"/></tab_sql></sqlb_project>
